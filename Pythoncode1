@@ -1,0 +1,120 @@
+import snowflake.connector
+import pyhdb
+import os
+import csv
+import boto3
+#import pyodbc
+import pandas as pd
+from io import StringIO
+from datetime import datetime
+from hdbcli import dbapi
+import logging
+
+def connect_to_hana(host, port, user, password):
+    connection = pyhdb.connect(
+        host=host,
+        port=port,
+        user=user,
+        password=password
+    )
+    return connection
+
+def connect_to_snowflake(user, password, account, warehouse, database, schema):
+    ctx = snowflake.connector.connect(
+        user=user,
+        password=password,
+        account=account,
+        warehouse=warehouse,
+        database=database,
+        schema=schema
+    )
+    return ctx
+    
+def get_hana_count(connection, table_name):
+    cursor = connection.cursor()
+    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+    count = cursor.fetchone()[0]
+    cursor.close()
+    return count
+
+def get_snowflake_count(ctx, table_name):
+    cursor = ctx.cursor()
+    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+    count = cursor.fetchone()[0]
+    cursor.close()
+    return count
+
+def execute_hana_query(connection, sql_query):
+    cursor = connection.cursor()
+    cursor.execute(sql_query)
+    data = cursor.fetchall()
+    cursor.close()
+    return data
+
+def execute_snowflake_query(ctx, sql_query):
+    cursor = ctx.cursor()
+    cursor.execute(sql_query)
+    data = cursor.fetchall()
+    cursor.close()
+    return data
+
+def get_table_schema(snowflake_connection, table_name):
+    cursor = snowflake_connection.cursor()
+    query = f"SELECT column_name, data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '{table_name}'"
+    
+    cursor.execute(query)
+    schema = {}
+
+    for row in cursor.fetchall():
+        column_name, data_type = row
+        schema[column_name] = data_type
+    cursor.close()
+    return schema
+
+table_name="xyz"
+
+logging.basicConfig(filename='debug.log', level=logging.DEBUG)
+
+def main():
+    try:
+        hana_conn = connect_to_hana(**Connection)
+        snowflake_conn = connect_to_snowflake(**ctx)
+
+        hana_count = get_hana_count(hana_conn, table_name)
+        snowflake_count = get_snowflake_count(snowflake_conn, table_name) 
+
+        with open('count_log.txt', 'w') as log_file:
+            log_file.write(f"Count in SAP HANA ({table_name}): {hana_count}\n")
+            log_file.write(f"Count in Snowflake ({table_name}): {snowflake_count}\n")
+
+            if hana_count == snowflake_count:
+                log_file.write("Counts match!\n")
+            else:
+                log_file.write("Counts do not match!\n")
+                
+                # Construct the SQL query to retrieve data from Snowflake
+                sql_query = f"SELECT * FROM snowflake_tablename"
+
+                # Fetch data from SAP HANA and Snowflake
+                hana_data = execute_hana_query(hana_conn, f"SELECT * FROM {table_name}")
+                snowflake_schema = get_table_schema(snowflake_conn, table_name)
+                snowflake_data = execute_snowflake_query(snowflake_conn, sql_query)
+
+                missing_records = set(hana_data) - set(snowflake_data)
+                log_file.write("Missing Records:\n")
+                for record in missing_records:
+                    log_file.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    for col, value in zip(snowflake_schema.keys(), record):
+                        data_type = snowflake_schema[col]  # Retrieve data type from the schema
+                        log_file.write(f"Column: {col}, DataType: {data_type}, Value: {value}\n")
+                    log_file.write(f"SQL Query Executed: {sql_query}\n")
+
+        hana_conn.close()
+        snowflake_conn.close()
+
+    except Exception as e:
+        logging.error(f"An error occurred: {str(e)}")
+        
+if __name__ == "__main__":
+    main()
+    
